@@ -1,10 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import Control.Monad (guard)
-import Data.List (intercalate, unfoldr, find)
-import Data.Maybe (fromJust, mapMaybe)
+import Data.List (find, intercalate, unfoldr)
+import Data.Maybe (catMaybes, fromJust, isJust)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Linear.V2
 import Text.ParserCombinators.ReadP
 
 data Seat = Occupied | Empty deriving (Eq)
@@ -18,8 +19,8 @@ data Grid = Grid
   }
   deriving (Eq)
 
-cell :: Int -> Int -> Grid -> Maybe Cell
-cell x y grid
+cell :: V2 Int -> Grid -> Maybe Cell
+cell (V2 x y) grid
   | x < 0 || x >= width grid = Nothing
   | y < 0 || y >= height grid = Nothing
   | otherwise = Just $ cells grid V.! (y * width grid + x)
@@ -71,39 +72,50 @@ parseGrid = do
       }
 
 -- cellular automata
+directions :: [V2 Int]
+directions = do
+  dx <- [-1 .. 1]
+  dy <- [-1 .. 1]
+  guard $ not $ dx == 0 && dy == 0
+  return $ V2 dx dy
 
-adjacent :: Int -> Int -> Grid -> [Cell]
-adjacent x y grid = mapMaybe (\(x, y) -> cell x y grid) pos
+checkAdjacent :: V2 Int -> V2 Int -> Grid -> Bool
+checkAdjacent pos dir grid =
+  case cell (pos + dir) grid of
+    Just (Seat Occupied) -> True
+    _ -> False
+
+checkLine :: V2 Int -> V2 Int -> Grid -> Bool
+checkLine pos dir grid = Just (Seat Occupied) == find (/= Floor) seats
   where
-    pos :: [(Int, Int)]
-    pos = do
-      dx <- [-1 .. 1]
-      dy <- [-1 .. 1]
-      guard $ not $ dx == 0 && dy == 0
-      return (x + dx, y + dy)
+    seats = catMaybes $ takeWhile isJust cells
+    cells = (`cell` grid) <$> tail (iterate (+ dir) pos)
 
-step :: Grid -> Grid
-step g = Grid w h c'
+step :: (V2 Int -> V2 Int -> Grid -> Bool) -> Int -> Grid -> Grid
+step checkDir threshold g = Grid w h c'
   where
     (Grid w h _) = g
 
-    next :: (Int, Int) -> Cell
-    next (x, y)
-      | cur == Seat Empty    && adjOccupiedCount == 0 = Seat Occupied
-      | cur == Seat Occupied && adjOccupiedCount >= 4 = Seat Empty
+    next :: V2 Int -> Cell
+    next pos
+      | cur == Seat Empty && occupiedCount == 0 = Seat Occupied
+      | cur == Seat Occupied && occupiedCount >= threshold = Seat Empty
       | otherwise = cur
       where
-        cur = fromJust $ cell x y g
-        adj = adjacent x y g
-        adjOccupiedCount = length $ filter (== Seat Occupied) adj
+        cur = fromJust $ cell pos g
+        occupiedCount :: Int
+        occupiedCount = sum $ do
+          dir <- directions
+          let hasOccupied = checkDir pos dir g
+          return $ if hasOccupied then 1 else 0
 
     c' = V.fromList $ do
       y <- [0 .. h - 1]
       x <- [0 .. w - 1]
-      return $ next (x, y)
+      return $ next $ V2 x y
 
-steady :: Grid -> Grid
-steady grid = fst $ fromJust $ find (uncurry (==)) pairs
+steady :: (Grid -> Grid) -> Grid -> Grid
+steady step grid = fst $ fromJust $ find (uncurry (==)) pairs
   where
     grids = iterate step grid
     pairs = zip grids (tail grids)
@@ -112,8 +124,11 @@ main :: IO ()
 main = do
   text <- readFile "day11.txt"
   let grid = fst $ head $ readP_to_S parseGrid text
-  print $ V.length $ V.filter (== Seat Occupied) $ cells $ steady grid
+  print $ sol (step checkAdjacent 4) grid
+  print $ sol (step checkLine 5) grid
+  where
+    sol checkDir grid = V.length $ V.filter (== Seat Occupied) $ cells $ steady checkDir grid
 
 -- tests
-test1 :: String
-test1 = "L.LL.LL.LL\nLLLLLLL.LL\nL.L.L..L..\nLLLL.LL.LL\nL.LL.LL.LL\nL.LLLLL.LL\n..L.L.....\nLLLLLLLLLL\nL.LLLLLL.L\nL.LLLLL.LL\n"
+test1 :: Grid
+test1 = fst $ head $ readP_to_S parseGrid "L.LL.LL.LL\nLLLLLLL.LL\nL.L.L..L..\nLLLL.LL.LL\nL.LL.LL.LL\nL.LLLLL.LL\n..L.L.....\nLLLLLLLLLL\nL.LLLLLL.L\nL.LLLLL.LL\n"

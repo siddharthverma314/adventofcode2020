@@ -16,6 +16,7 @@
         buildInputs = [
           (pkgs.haskell.packages.ghc8102.ghcWithPackages (p: [
             p.haskell-language-server
+            p.linear
           ]))
         ];
       };
