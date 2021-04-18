@@ -14,7 +14,7 @@
     in {
       devShell."${system}" = pkgs.mkShell {
         buildInputs = [
-          (pkgs.haskell.packages.ghc8102.ghcWithPackages (p: [
+          (pkgs.ghc.withPackages (p: [
             p.haskell-language-server
             p.linear
           ]))
